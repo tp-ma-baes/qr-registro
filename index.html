@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Registro automático</title>
+</head>
+<body>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+
+  fetch("https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instalacao: params.get("instalacao"),
+      local: params.get("local"),
+      token: params.get("token")
+    })
+  })
+  .then(response => {
+    if (!response.ok) throw new Error("Erro HTTP");
+    document.body.innerHTML =
+      "<h2>Registro efetuado com sucesso.</h2>";
+  })
+  .catch(() => {
+    document.body.innerHTML =
+      "<h2>Erro ao registrar.</h2>";
+  });
+</script>
+
+</body>
+</html>
