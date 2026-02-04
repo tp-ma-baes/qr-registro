@@ -12,7 +12,6 @@
     small { color: #666; }
   </style>
 </head>
-
 <body>
   <h2>Registrando...</h2>
   <p><small>Você pode fechar esta tela após a confirmação.</small></p>
@@ -20,7 +19,7 @@
 <script>
   // ========= CONFIGURE AQUI =========
   const FLOW_URL = "https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc";
-  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 minutos (anti-refresh)
+  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 min anti-refresh
   // =================================
 
   const params = new URLSearchParams(window.location.search);
@@ -28,73 +27,61 @@
   const local = params.get("local");
   const token = params.get("token");
 
-  function showOk(msg) {
-    document.body.innerHTML =
-      `<h2 class="ok">${msg}</h2>
-       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
-  }
-  function showWarn(msg) {
-    document.body.innerHTML =
-      `<h2 class="warn">${msg}</h2>
-       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
-  }
-  function showErr(msg) {
-    document.body.innerHTML =
-      `<h2 class="err">${msg}</h2>
-       <p><small>Instalação: ${instalacao || "-"}<br>Local: ${local || "-"}</small></p>`;
+  function html(title, cls, extra="") {
+    document.body.innerHTML = `
+      <h2 class="${cls}">${title}</h2>
+      <p><small>Instalação: ${instalacao || "-"}<br>Local: ${local || "-"}</small></p>
+      ${extra}
+    `;
   }
 
   // Validação mínima
   if (!instalacao || !local || !token) {
-    showErr("Parâmetros ausentes no QR Code");
+    html("Parâmetros ausentes no QR Code", "err",
+      "<p>O QR precisa conter <b>instalacao</b>, <b>local</b> e <b>token</b>.</p>");
     throw new Error("Missing params");
   }
 
-  // Chave do QR
+  // Anti-refresh / anti-reload na mesma sessão
   const key = `qr:${instalacao}|${local}`;
   const now = Date.now();
   const last = Number(sessionStorage.getItem(key) || "0");
 
-  // Anti-refresh / anti-reload
   if (last && (now - last) < CLIENT_TTL_MS) {
     const secs = Math.ceil((CLIENT_TTL_MS - (now - last)) / 1000);
-    showWarn(`Registro já enviado recentemente (aguarde ${secs}s)`);
+    html(`Registro já enviado recentemente (aguarde ${secs}s)`, "warn");
   } else {
-    // Marca como enviado antes (evita duplo refresh)
+    // Marca para evitar refresh imediato duplicar
     sessionStorage.setItem(key, String(now));
 
-    const payloadObj = { instalacao, local, token };
-    const payloadJson = JSON.stringify(payloadObj);
+    const payload = { instalacao, local, token };
 
-    // 1) Tentativa preferida: sendBeacon (ótimo para mobile)
-    let sent = false;
-    try {
-      if (navigator.sendBeacon) {
-        const blob = new Blob([payloadJson], { type: "application/json" });
-        sent = navigator.sendBeacon(FLOW_URL, blob);
+    // Envia de forma "real" e só confirma sucesso se o fetch concluir.
+    (async () => {
+      try {
+        const resp = await fetch(FLOW_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+          keepalive: true
+        });
+
+        // Aqui pode ocorrer CORS impedindo leitura do status em alguns casos.
+        // Mesmo assim, se chegou até aqui sem exceção, a requisição saiu do browser.
+        // Se o Flow estiver “Anyone/Alguém” e schema bate, ele deve disparar.
+
+        html("Registro enviado (requisição concluída).", "ok",
+          "<p><small>Se não houver execução no Power Automate, verifique a URL do trigger (sig) e se o Flow está ligado.</small></p>");
+
+      } catch (e) {
+        // Se falhou de verdade (rede/CORS/URL inválida), libera para tentar de novo
+        sessionStorage.removeItem(key);
+        html("Falha ao enviar o registro", "err",
+          `<p><small>Detalhe: ${String(e)}</small></p>
+           <p>Tente novamente escaneando o QR Code.</p>`);
       }
-    } catch (e) { /* ignora */ }
-
-    // 2) Fallback: fetch NORMAL (sem no-cors)
-    // Mesmo que CORS impeça ler a resposta, o POST geralmente chega no Flow.
-    if (!sent) {
-      fetch(FLOW_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: payloadJson,
-        keepalive: true
-      })
-      .then(() => { /* não depende de response.ok */ })
-      .catch(() => { /* pode falhar no browser, mas ainda assim tentar */ });
-      sent = true; // assumimos disparo (objetivo é iniciar o fluxo)
-    }
-
-    if (sent) {
-      showOk("Registro efetuado com sucesso.");
-    } else {
-      sessionStorage.removeItem(key);
-      showErr("Não foi possível enviar o registro");
-    }
+    })();
   }
 </script>
 </body>
