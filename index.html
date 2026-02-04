@@ -12,14 +12,18 @@
     small { color: #666; }
   </style>
 </head>
+
 <body>
-  <h2>Registrando...</h2>
-  <p><small>Você pode fechar esta tela após a confirmação.</small></p>
+
+<h2>Confirmação de registro</h2>
+<p><small>Verifique as informações antes de confirmar.</small></p>
+
+<div id="content"></div>
 
 <script>
   // ========= CONFIGURE AQUI =========
   const FLOW_URL = "https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc";
-  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 min anti-refresh
+  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 min
   // =================================
 
   const params = new URLSearchParams(window.location.search);
@@ -27,61 +31,74 @@
   const local = params.get("local");
   const token = params.get("token");
 
-  function html(title, cls, extra="") {
-    document.body.innerHTML = `
-      <h2 class="${cls}">${title}</h2>
-      <p><small>Instalação: ${instalacao || "-"}<br>Local: ${local || "-"}</small></p>
-      ${extra}
-    `;
+  const content = document.getElementById("content");
+
+  function render(html) {
+    content.innerHTML = html;
   }
 
   // Validação mínima
   if (!instalacao || !local || !token) {
-    html("Parâmetros ausentes no QR Code", "err",
-      "<p>O QR precisa conter <b>instalacao</b>, <b>local</b> e <b>token</b>.</p>");
+    render(`
+      <p class="err"><b>Parâmetros ausentes no QR Code.</b></p>
+      <p><small>O QR precisa conter instalacao, local e token.</small></p>
+    `);
     throw new Error("Missing params");
   }
 
-  // Anti-refresh / anti-reload na mesma sessão
   const key = `qr:${instalacao}|${local}`;
   const now = Date.now();
   const last = Number(sessionStorage.getItem(key) || "0");
 
   if (last && (now - last) < CLIENT_TTL_MS) {
     const secs = Math.ceil((CLIENT_TTL_MS - (now - last)) / 1000);
-    html(`Registro já enviado recentemente (aguarde ${secs}s)`, "warn");
+    render(`
+      <p class="warn">
+        Registro já enviado recentemente.<br>
+        Aguarde ${secs}s antes de tentar novamente.
+      </p>
+    `);
   } else {
-    // Marca para evitar refresh imediato duplicar
-    sessionStorage.setItem(key, String(now));
+    // Tela de confirmação
+    render(`
+      <p>
+        <b>Instalação:</b> ${instalacao}<br>
+        <b>Local:</b> ${local}
+      </p>
 
-    const payload = { instalacao, local, token };
+      <button id="confirmar">✅ Confirmar registro</button>
+      <button onclick="window.close()">❌ Cancelar</button>
+    `);
 
-    // Envia de forma "real" e só confirma sucesso se o fetch concluir.
-    (async () => {
+    document.getElementById("confirmar").onclick = async () => {
+      sessionStorage.setItem(key, String(Date.now()));
+
+      render("<p>Enviando registro...</p>");
+
       try {
         const resp = await fetch(FLOW_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ instalacao, local, token }),
           cache: "no-store",
           keepalive: true
         });
 
-        // Aqui pode ocorrer CORS impedindo leitura do status em alguns casos.
-        // Mesmo assim, se chegou até aqui sem exceção, a requisição saiu do browser.
-        // Se o Flow estiver “Anyone/Alguém” e schema bate, ele deve disparar.
-
-        html("Registro enviado (requisição concluída).", "ok");
+        render(`
+          <p class="ok"><b>Registro enviado com sucesso.</b></p>
+          <p><small>Você pode fechar esta tela.</small></p>
+        `);
 
       } catch (e) {
-        // Se falhou de verdade (rede/CORS/URL inválida), libera para tentar de novo
         sessionStorage.removeItem(key);
-        html("Falha ao enviar o registro", "err",
-          `<p><small>Detalhe: ${String(e)}</small></p>
-           <p>Tente novamente escaneando o QR Code.</p>`);
+        render(`
+          <p class="err"><b>Falha ao enviar o registro.</b></p>
+          <p><small>${String(e)}</small></p>
+        `);
       }
-    })();
+    };
   }
 </script>
+
 </body>
 </html>
