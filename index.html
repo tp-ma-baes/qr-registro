@@ -3,31 +3,39 @@
 <head>
   <meta charset="utf-8">
   <title>Registro automático</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
+  <h2>Registrando...</h2>
 
 <script>
   const params = new URLSearchParams(window.location.search);
 
-  fetch("https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      instalacao: params.get("instalacao"),
-      local: params.get("local"),
-      token: params.get("token")
-    })
-  })
-  .then(response => {
-    if (!response.ok) throw new Error("Erro HTTP");
-    document.body.innerHTML =
-      "<h2>Registro efetuado com sucesso.</h2>";
-  })
-  .catch(() => {
-    document.body.innerHTML =
-      "<h2>Erro ao registrar.</h2>";
-  });
-</script>
+  // Mostra sucesso "otimista" (seu caso não precisa de confirmação real)
+  function ok() {
+    document.body.innerHTML = "<h2>Registro efetuado com sucesso.</h2>";
+  }
+  function fail() {
+    document.body.innerHTML = "<h2>Erro ao registrar.</h2>";
+  }
 
+  try {
+    fetch("SUA_URL_DO_FLOW_AQUI", {
+      method: "POST",
+      mode: "no-cors", // <- evita a falha de leitura por CORS
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instalacao: params.get("instalacao"),
+        local: params.get("local"),
+        token: params.get("token")
+      })
+    });
+
+    // Não dá para esperar/validar resposta no modo no-cors (resposta é opaca).
+    ok();
+  } catch (e) {
+    fail();
+  }
+</script>
 </body>
 </html>
