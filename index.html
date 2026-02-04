@@ -2,36 +2,97 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>Registro automático</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro de vazamento de água</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; padding: 24px; }
+    .ok { color: #0a7a0a; }
+    .warn { color: #8a6d00; }
+    .err { color: #b00020; }
+    small { color: #666; }
+  </style>
 </head>
+
 <body>
   <h2>Registrando...</h2>
+  <p><small>Você pode fechar esta tela após a confirmação.</small></p>
 
 <script>
+  // ========= CONFIGURE AQUI =========
+  const FLOW_URL = "https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc"; // <- sua URL completa
+  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 minutos: evita duplicar por refresh acidental
+  // =================================
+
   const params = new URLSearchParams(window.location.search);
+  const instalacao = params.get("instalacao");
+  const local = params.get("local");
+  const token = params.get("token");
 
-  function ok() {
-    document.body.innerHTML = "<h2>Notificação efetuada com sucesso!</h2>";
+  // Validação mínima do lado do cliente (evita enviar lixo)
+  if (!instalacao || !local || !token) {
+    document.body.innerHTML =
+      `<h2 class="err">Parâmetros ausentes</h2>
+       <p>Verifique se o QR Code contém <b>instalacao</b>, <b>local</b> e <b>token</b>.</p>`;
+    throw new Error("Parâmetros ausentes");
   }
-  function fail() {
-    document.body.innerHTML = "<h2>Erro ao registrar.</h2>";
-  }
 
-  try {
-    fetch("https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        instalacao: params.get("instalacao"),
-        local: params.get("local"),
-        token: params.get("token")
-      })
-    });
+  // Chave do QR (mesmo QR => mesma chave)
+  const key = `qr:${instalacao}|${local}`;
+  const now = Date.now();
 
-    ok();
-  } catch (e) {
-    fail();
+  // Anti-refresh / anti-reload dentro da mesma sessão (aba)
+  // Guarda timestamp do último envio por chave
+  const last = Number(sessionStorage.getItem(key) || "0");
+  if (last && (now - last) < CLIENT_TTL_MS) {
+    const secs = Math.ceil((CLIENT_TTL_MS - (now - last)) / 1000);
+    document.body.innerHTML =
+      `<h2 class="warn">Registro já enviado recentemente</h2>
+       <p>Para evitar repetição por atualização, aguarde <b>${secs}s</b> ou feche a aba.</p>
+       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+  } else {
+    // Marca como enviado ANTES para prevenir duplo clique/refresh imediato
+    sessionStorage.setItem(key, String(now));
+
+    // Payload mínimo
+    const payload = JSON.stringify({ instalacao, local, token });
+
+    // Envio "fire-and-forget": mais robusto em mobile e não depende de ler resposta (CORS)
+    // Tentativa 1: sendBeacon (se suportado)
+    let sent = false;
+    try {
+      if (navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: "application/json" });
+        sent = navigator.sendBeacon(FLOW_URL, blob);
+      }
+    } catch (e) { /* ignora */ }
+
+    // Tentativa 2: fetch no-cors (fallback)
+    if (!sent) {
+      try {
+        fetch(FLOW_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true
+        });
+        sent = true;
+      } catch (e) {
+        sent = false;
+      }
+    }
+
+    if (sent) {
+      document.body.innerHTML =
+        `<h2 class="ok">Registro efetuado com sucesso.</h2>
+         <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+    } else {
+      // Se falhar o envio, desfaz a marca para permitir nova tentativa
+      sessionStorage.removeItem(key);
+      document.body.innerHTML =
+        `<h2 class="err">Erro ao enviar o registro</h2>
+         <p>Tente novamente escaneando o QR Code.</p>`;
+    }
   }
 </script>
 </body>
