@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Registro de vazamento de água</title>
+  <title>Registro automático</title>
   <style>
     body { font-family: system-ui, Arial, sans-serif; padding: 24px; }
     .ok { color: #0a7a0a; }
@@ -19,8 +19,8 @@
 
 <script>
   // ========= CONFIGURE AQUI =========
-  const FLOW_URL = "https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc"; // <- sua URL completa
-  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 minutos: evita duplicar por refresh acidental
+  const FLOW_URL = "https://default46f6a78086e145709459bb97b7d99f.9d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8e3f86993ad42709beb0b4ef3327a12/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=AYZD_d0oTRmTzn4nBJgNo7njZFwSEQhItLuOpEfX0Kc";
+  const CLIENT_TTL_MS = 2 * 60 * 1000; // 2 minutos (anti-refresh)
   // =================================
 
   const params = new URLSearchParams(window.location.search);
@@ -28,70 +28,72 @@
   const local = params.get("local");
   const token = params.get("token");
 
-  // Validação mínima do lado do cliente (evita enviar lixo)
-  if (!instalacao || !local || !token) {
+  function showOk(msg) {
     document.body.innerHTML =
-      `<h2 class="err">Parâmetros ausentes</h2>
-       <p>Verifique se o QR Code contém <b>instalacao</b>, <b>local</b> e <b>token</b>.</p>`;
-    throw new Error("Parâmetros ausentes");
+      `<h2 class="ok">${msg}</h2>
+       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+  }
+  function showWarn(msg) {
+    document.body.innerHTML =
+      `<h2 class="warn">${msg}</h2>
+       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+  }
+  function showErr(msg) {
+    document.body.innerHTML =
+      `<h2 class="err">${msg}</h2>
+       <p><small>Instalação: ${instalacao || "-"}<br>Local: ${local || "-"}</small></p>`;
   }
 
-  // Chave do QR (mesmo QR => mesma chave)
+  // Validação mínima
+  if (!instalacao || !local || !token) {
+    showErr("Parâmetros ausentes no QR Code");
+    throw new Error("Missing params");
+  }
+
+  // Chave do QR
   const key = `qr:${instalacao}|${local}`;
   const now = Date.now();
-
-  // Anti-refresh / anti-reload dentro da mesma sessão (aba)
-  // Guarda timestamp do último envio por chave
   const last = Number(sessionStorage.getItem(key) || "0");
+
+  // Anti-refresh / anti-reload
   if (last && (now - last) < CLIENT_TTL_MS) {
     const secs = Math.ceil((CLIENT_TTL_MS - (now - last)) / 1000);
-    document.body.innerHTML =
-      `<h2 class="warn">Registro já enviado recentemente</h2>
-       <p>Para evitar repetição por atualização, aguarde <b>${secs}s</b> ou feche a aba.</p>
-       <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+    showWarn(`Registro já enviado recentemente (aguarde ${secs}s)`);
   } else {
-    // Marca como enviado ANTES para prevenir duplo clique/refresh imediato
+    // Marca como enviado antes (evita duplo refresh)
     sessionStorage.setItem(key, String(now));
 
-    // Payload mínimo
-    const payload = JSON.stringify({ instalacao, local, token });
+    const payloadObj = { instalacao, local, token };
+    const payloadJson = JSON.stringify(payloadObj);
 
-    // Envio "fire-and-forget": mais robusto em mobile e não depende de ler resposta (CORS)
-    // Tentativa 1: sendBeacon (se suportado)
+    // 1) Tentativa preferida: sendBeacon (ótimo para mobile)
     let sent = false;
     try {
       if (navigator.sendBeacon) {
-        const blob = new Blob([payload], { type: "application/json" });
+        const blob = new Blob([payloadJson], { type: "application/json" });
         sent = navigator.sendBeacon(FLOW_URL, blob);
       }
     } catch (e) { /* ignora */ }
 
-    // Tentativa 2: fetch no-cors (fallback)
+    // 2) Fallback: fetch NORMAL (sem no-cors)
+    // Mesmo que CORS impeça ler a resposta, o POST geralmente chega no Flow.
     if (!sent) {
-      try {
-        fetch(FLOW_URL, {
-          method: "POST",
-          //mode: "no-cors",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true
-        });
-        sent = true;
-      } catch (e) {
-        sent = false;
-      }
+      fetch(FLOW_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payloadJson,
+        keepalive: true
+      })
+      .then(() => { /* não depende de response.ok */ })
+      .catch(() => { /* pode falhar no browser, mas ainda assim tentar */ });
+      sent = true; // assumimos disparo (objetivo é iniciar o fluxo)
     }
 
     if (sent) {
-      document.body.innerHTML =
-        `<h2 class="ok">Registro efetuado com sucesso.</h2>
-         <p><small>Instalação: ${instalacao}<br>Local: ${local}</small></p>`;
+      showOk("Registro efetuado com sucesso.");
     } else {
-      // Se falhar o envio, desfaz a marca para permitir nova tentativa
       sessionStorage.removeItem(key);
-      document.body.innerHTML =
-        `<h2 class="err">Erro ao enviar o registro</h2>
-         <p>Tente novamente escaneando o QR Code.</p>`;
+      showErr("Não foi possível enviar o registro");
     }
   }
 </script>
