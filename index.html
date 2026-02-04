@@ -71,8 +71,7 @@
         // Mesmo assim, se chegou até aqui sem exceção, a requisição saiu do browser.
         // Se o Flow estiver “Anyone/Alguém” e schema bate, ele deve disparar.
 
-        html("Registro enviado (requisição concluída).", "ok",
-          "<p><small>Se não houver execução no Power Automate, verifique a URL do trigger (sig) e se o Flow está ligado.</small></p>");
+        html("Registro enviado (requisição concluída).", "ok");
 
       } catch (e) {
         // Se falhou de verdade (rede/CORS/URL inválida), libera para tentar de novo
